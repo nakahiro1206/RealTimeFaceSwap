@@ -1,27 +1,7 @@
-# -*- coding: utf-8 -*-
-# @Organization  : insightface.ai
-# @Author        : Jia Guo
-# @Time          : 2021-09-18
-# @Function      : 
-
-from __future__ import division
-import datetime
+import onnxruntime as ort
 import numpy as np
-import onnx
-import onnxruntime
-import os
-import os.path as osp
+import multiprocessing as mp
 import cv2
-import sys
-
-def softmax(z):
-    assert len(z.shape) == 2
-    s = np.max(z, axis=1)
-    s = s[:, np.newaxis] # necessary step to do broadcasting
-    e_x = np.exp(z - s)
-    div = np.sum(e_x, axis=1)
-    div = div[:, np.newaxis] # dito
-    return e_x / div
 
 def distance2bbox(points, distance, max_shape=None):
     """Decode distance prediction to bounding box.
@@ -69,65 +49,54 @@ def distance2kps(points, distance, max_shape=None):
         preds.append(py)
     return np.stack(preds, axis=-1)
 
-class RetinaFace:
-    def __init__(self, model_file=None, session=None):
-        import onnxruntime
-        self.model_file = model_file
-        self.session = session
-        self.taskname = 'detection'
-        if self.session is None:
-            assert self.model_file is not None
-            assert osp.exists(self.model_file)
-            self.session = onnxruntime.InferenceSession(self.model_file, None)
-        self.center_cache = {}
-        self.nms_thresh = 0.4
-        self.det_thresh = 0.5
-        self._init_vars()
+def init_session(model_path):
+    # EP_list = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+    EP_list = ['CoreMLExecutionProvider', 'AzureExecutionProvider', 'CPUExecutionProvider']
+    session = ort.InferenceSession(model_path, providers=EP_list)
+    return session
 
-    def _init_vars(self):
-        input_cfg = self.session.get_inputs()[0]
-        input_shape = input_cfg.shape
-        #print(input_shape)
-        if isinstance(input_shape[2], str):
-            self.input_size = None
-        else:
-            self.input_size = tuple(input_shape[2:4][::-1])
-        #print('image_size:', self.image_size)
-        input_name = input_cfg.name
-        self.input_shape = input_shape
-        outputs = self.session.get_outputs()
-        output_names = []
-        for o in outputs:
-            output_names.append(o.name)
-        self.input_name = input_name
-        self.output_names = output_names
-        self.input_mean = 127.5
-        self.input_std = 128.0
-        #print(self.output_names)
-        #assert len(outputs)==10 or len(outputs)==15
-        self.use_kps = False
-        self._anchor_ratio = 1.0
-        self._num_anchors = 1
-        if len(outputs)==6:
-            self.fmc = 3
-            self._feat_stride_fpn = [8, 16, 32]
-            self._num_anchors = 2
-        elif len(outputs)==9:
-            self.fmc = 3
-            self._feat_stride_fpn = [8, 16, 32]
-            self._num_anchors = 2
-            self.use_kps = True
-        elif len(outputs)==10:
-            self.fmc = 5
-            self._feat_stride_fpn = [8, 16, 32, 64, 128]
-            self._num_anchors = 1
-        elif len(outputs)==15:
-            self.fmc = 5
-            self._feat_stride_fpn = [8, 16, 32, 64, 128]
-            self._num_anchors = 1
-            self.use_kps = True
+class PicklableInferenceSession:
+    """
+    Correspond to retinaface"""
+    # This is a wrapper to make the current InferenceSession class pickable.
+    def __init__(self, model_path):
+        self.model_path = model_path
+        self.session = init_session(self.model_path)
+
+    def run(self, *args):# ここでdetect 処理を行う.
+        # net_outs = self.session.run(self.output_names, {self.input_name : blob})
+
+        # def get(self, img, max_num=0):
+        # bboxes, kpss = self.det_model.detect(img,
+        #                                      max_num=max_num,
+        #                                      metric='default')
+        # if bboxes.shape[0] == 0:
+        #     return []
+        # ret = []
+        # for i in range(bboxes.shape[0]):
+        #     bbox = bboxes[i, 0:4]
+        #     det_score = bboxes[i, 4]
+        #     kps = None
+        #     if kpss is not None:
+        #         kps = kpss[i]
+        #     face = Face(bbox=bbox, kps=kps, det_score=det_score)
+        #     for taskname, model in self.models.items():
+        #         if taskname=='detection':
+        #             continue
+        #         model.get(img, face)
+        #     ret.append(face)
+        # return ret
+        return self.session.run(*args)
+
+    def __getstate__(self):
+        return {'model_path': self.model_path}
+
+    def __setstate__(self, values):
+        self.model_path = values['model_path']
+        self.session = init_session(self.model_path)
 
     def prepare(self, ctx_id, **kwargs):
+        print(kwargs)
         if ctx_id<0:
             self.session.set_providers(['CPUExecutionProvider'])
         nms_thresh = kwargs.get('nms_thresh', None)
@@ -137,11 +106,15 @@ class RetinaFace:
         if det_thresh is not None:
             self.det_thresh = det_thresh
         input_size = kwargs.get('input_size', None)
+        # input_size will be None
+        print(input_size)
         if input_size is not None:
-            if self.input_size is not None:
-                print('warning: det_size is already set in detection model, ignore')
-            else:
-                self.input_size = input_size
+            # if self.input_size is not None:
+            #     print('warning: det_size is already set in detection model, ignore')
+            # else:
+            self.input_size = input_size
+        det_thresh = kwargs.get('det_thresh', None)
+        self.det_thresh = det_thresh
 
     def forward(self, img, threshold):
         scores_list = []
@@ -149,7 +122,7 @@ class RetinaFace:
         kpss_list = []
         input_size = tuple(img.shape[0:2][::-1])
         blob = cv2.dnn.blobFromImage(img, 1.0/self.input_std, input_size, (self.input_mean, self.input_mean, self.input_mean), swapRB=True)
-        # ここでforward
+        # ここでsession run.
         net_outs = self.session.run(self.output_names, {self.input_name : blob})
 
         input_height = blob.shape[2]
@@ -222,6 +195,7 @@ class RetinaFace:
         det_img = np.zeros( (input_size[1], input_size[0], 3), dtype=np.uint8 )
         det_img[:new_height, :new_width, :] = resized_img
 
+        # call forward.
         scores_list, bboxes_list, kpss_list = self.forward(det_img, self.det_thresh)
 
         scores = np.vstack(scores_list)
@@ -290,13 +264,87 @@ class RetinaFace:
 
         return keep
 
-def get_retinaface(name, download=False, root='~/.insightface/models', **kwargs):
-    if not download:
-        assert os.path.exists(name)
-        return RetinaFace(name)
-    else:
-        from .model_store import get_model_file
-        _file = get_model_file("retinaface_%s" % name, root=root)
-        return retinaface(_file)
+# class PickableInferenceSession(onnxruntime.InferenceSession): 
+#     # This is a wrapper to make the current InferenceSession class pickable.
+#     def __init__(self, model_path, **kwargs):
+#         super().__init__(model_path, **kwargs)
+#         self.model_path = model_path
+
+#     def __getstate__(self):
+#         return {'model_path': self.model_path}
+
+#     def __setstate__(self, values):
+#         model_path = values['model_path']
+#         self.__init__(model_path)
+
+class IOProcess (mp.Process): # ここで画像バイナリを渡す.
+    def __init__(self, start_event, stop_event):
+        super(IOProcess, self).__init__()
+        # ここのパスを見つけたらok
+        model_path = '/Users/nakanohiroki/.insightface/models/buffalo_l/det_10g.onnx'
+        self.session = PicklableInferenceSession(model_path)
+        self.start_event = start_event
+        self.stop_event = stop_event
+
+        # prepare
+        source_face_path = "source_face.jpg"
+        source_face = cv2.imread(source_face_path)
+        self.session.prepare(ctx_id=0, det_size=(640, 640), input_size=(640, 640), det_thresh=0.5)
+        # def get(self, img, max_num=0):
+        # bboxes, kpss = self.det_model.detect(img,
+        #                                      max_num=max_num,
+        #                                      metric='default')
+        # if bboxes.shape[0] == 0:
+        #     return []
+        # ret = []
+        # for i in range(bboxes.shape[0]):
+        #     bbox = bboxes[i, 0:4]
+        #     det_score = bboxes[i, 4]
+        #     kps = None
+        #     if kpss is not None:
+        #         kps = kpss[i]
+        #     face = Face(bbox=bbox, kps=kps, det_score=det_score)
+        #     for taskname, model in self.models.items():
+        #         if taskname=='detection':
+        #             continue
+        #         model.get(img, face)
+        #     ret.append(face)
+        # return ret
+        self.session.detect(source_face) # ERROR!
+        exit()
+
+        # FaceAnalysis.prepare = RetinaFace.prepare
+        # self.session.prepare
+        # self.session.
+
+        # processor.store_source_face("Tom_Cruise_avp_2014_4.jpg")
+        # """
+        # # Load source face
+        # img = cv2.imread(img_path)
 
 
+    def run(self):
+        while not self.stop_event.is_set():
+            print("calling run")
+            print(self.session)
+            # print(self.session.run({}, {
+            #     # 'a': np.zeros((3,4),dtype=np.float32), 
+            #     # 'b': np.zeros((4,3),dtype=np.float32), 
+            #     'target': [[[0,0,0]]],
+            #     "source": [[[0,0,0]]]
+            #     }))
+
+if __name__ == '__main__':
+    mp.set_start_method('spawn') # This is important and MUST be inside the name==main block.
+    start_event = mp.Event()
+    stop_event = mp.Event()
+    cpu_num = 4
+    io_process_list = []
+    for _ in range(cpu_num):
+        io_process = IOProcess(start_event, stop_event)
+        print("run", _)
+        io_process.start()
+        io_process_list.append(io_process)
+    stop_event.set()
+    for io_process in io_process_list:
+        io_process.join()

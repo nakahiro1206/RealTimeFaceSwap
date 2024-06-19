@@ -10,6 +10,7 @@ app.prepare(ctx_id=0, det_size=(640, 640))
 my_img = cv2.imread("Tom_Cruise_avp_2014_4.jpg")
 my_face = app.get(my_img)
 source_face = my_face[0]
+# https://huggingface.co/ezioruan/inswapper_128.onnx/tree/main
 swapper = get_model("inswapper_128.onnx")
 
 # Initialize webcam video capture

@@ -1,3 +1,5 @@
+# https://github.com/microsoft/onnxruntime/issues/7846
+
 import onnxruntime as ort
 import numpy as np
 import multiprocessing as mp
@@ -7,8 +9,7 @@ def init_session(model_path):
     sess = ort.InferenceSession(model_path, providers=EP_list)
     return sess
 
-class PickableInferenceSession:
-    # This is a wrapper to make the current InferenceSession class pickable.
+class PickableInferenceSession: # This is a wrapper to make the current InferenceSession class pickable.
     def __init__(self, model_path):
         self.model_path = model_path
         self.sess = init_session(self.model_path)
@@ -23,20 +24,14 @@ class PickableInferenceSession:
         self.model_path = values['model_path']
         self.sess = init_session(self.model_path)
 
-
 class IOProcess (mp.Process):
     def __init__(self):
         super(IOProcess, self).__init__()
-        self.sess = PickableInferenceSession('inswapper_128.onnx')
+        self.sess = PickableInferenceSession('model.onnx')
 
     def run(self):
         print("calling run")
-        print(self.sess.run({}, {
-            # 'a': np.zeros((3,4),dtype=np.float32), 
-            # 'b': np.zeros((4,3),dtype=np.float32), 
-            'target': [[[0,0,0]]],
-            "source": [[[0,0,0]]]
-            }))
+        print(self.sess.run({}, {'a': np.zeros((3,4),dtype=np.float32), 'b': np.zeros((4,3),dtype=np.float32)}))
         #print(self.sess)
 
 if __name__ == '__main__':
