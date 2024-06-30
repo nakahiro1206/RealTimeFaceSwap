@@ -265,6 +265,23 @@ class PicklableRetinaFace:
             det = det[bindex, :]
             if kpss is not None:
                 kpss = kpss[bindex, :]
+
+        # ARCFACE ONNX
+        # def get_feat(self, imgs):
+        # if not isinstance(imgs, list):
+        #     imgs = [imgs]
+        # input_size = self.input_size
+        
+        # blob = cv2.dnn.blobFromImages(imgs, 1.0 / self.input_std, input_size,
+        #                               (self.input_mean, self.input_mean, self.input_mean), swapRB=True)
+        # ここで走ってる！.
+        # net_out = self.session.run(self.output_names, {self.input_name: blob})[0]
+        # return net_out
+
+        # def get(self, img, face):
+        # aimg = face_align.norm_crop(img, landmark=face.kps, image_size=self.input_size[0])
+        # face.embedding = self.get_feat(aimg).flatten()
+        # return face.embedding
         return det, kpss
 
     def nms(self, dets):
@@ -296,120 +313,3 @@ class PicklableRetinaFace:
             order = order[inds + 1]
 
         return keep
-
-class IOProcess (mp.Process): # ここで画像バイナリを渡す.
-    """
-    All the member variable shohuld be picklable!
-    """
-    def __init__(self, start_event, stop_event, input_queue):
-        super(IOProcess, self).__init__()
-        # ここのパスを見つけたらok
-        model_path = '/Users/nakanohiroki/.insightface/models/buffalo_l/det_10g.onnx'
-        self.session = PicklableRetinaFace(model_path)
-        print("IOProcess session", self.session.__dict__)
-        self.start_event = start_event
-        self.stop_event = stop_event
-        self.input_queue = input_queue
-
-        """
-        # prepare
-        self.session.prepare(ctx_id=0, det_size=(640, 640), input_size=(640, 640), det_thresh=0.5)
-        source_face_path = "source_face.jpg"
-        source_face = cv2.imread(source_face_path)
-        bboxes, kpss = self.session.detect(source_face, max_num=0, metric='default')
-        if bboxes.shape[0] == 0:
-            return []
-        ret = []
-        for i in range(bboxes.shape[0]):
-            bbox = bboxes[i, 0:4]
-            ret.append(bbox)
-        print(ret)
-        exit()
-        """
-
-        # _ = {'model_file': '/Users/nakanohiroki/.insightface/models/buffalo_l/det_10g.onnx', 
-        #      'session': '<insightface.model_zoo.model_zoo.PickableInferenceSession object at 0x137f984d0>', 
-        #      'taskname': 'detection', 'center_cache': {}, 'nms_thresh': 0.4, 'det_thresh': 0.5, 
-        #      'input_size': (640, 640), 'input_shape': [1, 3, '?', '?'], 'input_name': 'input.1', 
-        #      'output_names': ['448', '471', '494', '451', '474', '497', '454', '477', '500'], 
-        #      'input_mean': 127.5, 'input_std': 128.0, 'use_kps': True, '_anchor_ratio': 1.0, 
-        #      '_num_anchors': 2, 'fmc': 3, '_feat_stride_fpn': [8, 16, 32]}
-
-
-        # FaceAnalysis.prepare = RetinaFace.prepare
-        # self.session.prepare
-        # self.session.
-
-        # processor.store_source_face("Tom_Cruise_avp_2014_4.jpg")
-        # """
-        # # Load source face
-        # img = cv2.imread(img_path)
-
-
-    def run(self):
-        while not self.stop_event.is_set():
-            # print("run session", self.session.__dict__)
-            source_face_path = "source_face.jpg"
-            source_face = cv2.imread(source_face_path)
-            try:
-                frame = self.input_queue.get(timeout=1)
-                # self.session.prepare(ctx_id=0, det_size=(640, 640), input_size=(640, 640), det_thresh=0.5)
-
-                # Need to pass all the elements here?
-                bboxes, kpss = self.session.detect(frame, max_num=0, metric='default')
-                # if bboxes.shape[0] == 0:
-                #     return []
-                ret = []
-                for i in range(bboxes.shape[0]):
-                    bbox = bboxes[i, 0:4]
-                    # det_score = bboxes[i, 4]
-                    # kps = None
-                    # if kpss is not None:
-                    #     kps = kpss[i]
-                    # face = Face(bbox=bbox, kps=kps, det_score=det_score)
-                    # for taskname, model in self.models.items():
-                    #     if taskname=='detection':
-                    #         continue
-                    #     model.get(img, face)
-                    # ret.append(face)
-                    ret.append(bbox)
-                print(f"queue size is {self.input_queue.qsize()} and result is {ret}")
-            except:
-                print("get fail")
-            # time.sleep(1/120)
-
-if __name__ == '__main__':
-    mp.set_start_method('spawn') # This is important and MUST be inside the name==main block.
-    start_event = mp.Event()
-    stop_event = mp.Event()
-    manager = mp.Manager()
-    input_queue = manager.Queue(maxsize=1000)
-    cpu_num = 4
-    io_process_list = []
-    for _ in range(cpu_num):
-        io_process = IOProcess(start_event, stop_event, input_queue)
-        io_process_list.append(io_process)
-    # time.sleep(1)
-    for io_process in io_process_list:
-        print("run", io_process)
-        print(io_process.session.__dict__)
-        io_process.start()
-    
-    cap = cv2.VideoCapture(0)
-    s = time.time() # should be replaced start event.
-    while time.time() - s < 10:
-        ret, frame = cap.read()
-        if not ret:
-            print("ret break")
-            break
-        try: input_queue.put(frame, timeout=1)
-        except: print("put failed")
-        # time.sleep(1/360)
-
-    # time.sleep(3)
-    stop_event.set()
-    for io_process in io_process_list:
-        io_process.join()
-
-    cap.release()
-    cv2.destroyAllWindows()
