@@ -53,14 +53,34 @@ def main():
             if area > max_area:
                 max_area = area
                 biggest_face = face
-        assert biggest_face is not None
 
-        past_time = time.time() - start_time
-        idx = int(past_time / 10) % len(source_faces)
-        res = swapper.get(frame, biggest_face, source_faces[idx], paste_back=True)
+        hight, width, _ = frame.shape
+
+        if biggest_face is not None:
+            # face.__dict__
+            # kps: key points
+            # landmark_2d_106
+            # landmark_3d_68
+
+            past_time = time.time() - start_time
+            idx = int(past_time / 10) % len(source_faces)
+            # frame = swapper.get(frame, biggest_face, source_faces[idx], paste_back=True)
+
+            # 顔の境界ボックスを描画
+            bbox = biggest_face.bbox.astype(int)
+            cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
+
+            # ランドマークを描画
+            if biggest_face.landmark_2d_106 is not None:
+                for landmark in biggest_face.landmark_2d_106.astype(int):
+                    cv2.circle(frame, tuple(landmark), 2, (0, 255, 0), 2)
+
+            if biggest_face.kps is not None:
+                for kp in biggest_face.kps.astype(int):
+                    cv2.circle(frame, tuple(kp), 5, (255, 0, 0), 10)
 
         # Display the resulting frame
-        cv2.imshow('Webcam Feed', res)
+        cv2.imshow('Webcam Feed', frame)
 
         print("swap: ", time.time() - s, end="\n\n")
 
