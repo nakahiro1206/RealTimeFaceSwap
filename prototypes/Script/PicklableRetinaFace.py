@@ -2,6 +2,7 @@ import onnxruntime as ort
 import numpy as np
 import multiprocessing as mp
 import cv2
+import time
 
 def distance2bbox(points, distance, max_shape=None):
     """Decode distance prediction to bounding box.
@@ -55,38 +56,21 @@ def init_session(model_path):
     session = ort.InferenceSession(model_path, providers=EP_list)
     return session
 
-class PicklableInferenceSession:
+class PicklableRetinaFace:
     """
-    Correspond to retinaface"""
+    Correspond to RetinaFace
+    loc: python3.12/site-packages/insightface/model_zoo/retinaface.py
+    """
     # This is a wrapper to make the current InferenceSession class pickable.
     def __init__(self, model_path):
         self.model_path = model_path
         self.session = init_session(self.model_path)
-
-    def run(self, *args):# ここでdetect 処理を行う.
-        # net_outs = self.session.run(self.output_names, {self.input_name : blob})
-
-        # def get(self, img, max_num=0):
-        # bboxes, kpss = self.det_model.detect(img,
-        #                                      max_num=max_num,
-        #                                      metric='default')
-        # if bboxes.shape[0] == 0:
-        #     return []
-        # ret = []
-        # for i in range(bboxes.shape[0]):
-        #     bbox = bboxes[i, 0:4]
-        #     det_score = bboxes[i, 4]
-        #     kps = None
-        #     if kpss is not None:
-        #         kps = kpss[i]
-        #     face = Face(bbox=bbox, kps=kps, det_score=det_score)
-        #     for taskname, model in self.models.items():
-        #         if taskname=='detection':
-        #             continue
-        #         model.get(img, face)
-        #     ret.append(face)
-        # return ret
-        return self.session.run(*args)
+        self.taskname = 'detection'
+        self.center_cache = {}
+        self.nms_thresh = 0.4
+        self.det_thresh = 0.5
+        self._init_vars()
+        self.prepare(ctx_id=0, det_size=(640, 640), input_size=(640, 640), det_thresh=0.5)
 
     def __getstate__(self):
         return {'model_path': self.model_path}
@@ -94,9 +78,58 @@ class PicklableInferenceSession:
     def __setstate__(self, values):
         self.model_path = values['model_path']
         self.session = init_session(self.model_path)
+        self.taskname = 'detection'
+        self.center_cache = {}
+        self.nms_thresh = 0.4
+        self.det_thresh = 0.5
+        self._init_vars()
+        self.prepare(ctx_id=0, det_size=(640, 640), input_size=(640, 640), det_thresh=0.5)
+
+    def _init_vars(self):
+        input_cfg = self.session.get_inputs()[0]
+        input_shape = input_cfg.shape
+        #print(input_shape)
+        if isinstance(input_shape[2], str):
+            self.input_size = None
+        else:
+            self.input_size = tuple(input_shape[2:4][::-1])
+        #print('image_size:', self.image_size)
+        input_name = input_cfg.name
+        self.input_shape = input_shape
+        outputs = self.session.get_outputs()
+        output_names = []
+        for o in outputs:
+            output_names.append(o.name)
+        self.input_name = input_name
+        self.output_names = output_names
+        self.input_mean = 127.5
+        self.input_std = 128.0
+        #print(self.output_names)
+        #assert len(outputs)==10 or len(outputs)==15
+        self.use_kps = False
+        self._anchor_ratio = 1.0
+        self._num_anchors = 1
+        if len(outputs)==6:
+            self.fmc = 3
+            self._feat_stride_fpn = [8, 16, 32]
+            self._num_anchors = 2
+        elif len(outputs)==9:
+            self.fmc = 3
+            self._feat_stride_fpn = [8, 16, 32]
+            self._num_anchors = 2
+            self.use_kps = True
+        elif len(outputs)==10:
+            self.fmc = 5
+            self._feat_stride_fpn = [8, 16, 32, 64, 128]
+            self._num_anchors = 1
+        elif len(outputs)==15:
+            self.fmc = 5
+            self._feat_stride_fpn = [8, 16, 32, 64, 128]
+            self._num_anchors = 1
+            self.use_kps = True
 
     def prepare(self, ctx_id, **kwargs):
-        print(kwargs)
+        # print(kwargs)
         if ctx_id<0:
             self.session.set_providers(['CPUExecutionProvider'])
         nms_thresh = kwargs.get('nms_thresh', None)
@@ -107,7 +140,7 @@ class PicklableInferenceSession:
             self.det_thresh = det_thresh
         input_size = kwargs.get('input_size', None)
         # input_size will be None
-        print(input_size)
+        # print(input_size)
         if input_size is not None:
             # if self.input_size is not None:
             #     print('warning: det_size is already set in detection model, ignore')
@@ -232,6 +265,23 @@ class PicklableInferenceSession:
             det = det[bindex, :]
             if kpss is not None:
                 kpss = kpss[bindex, :]
+
+        # ARCFACE ONNX
+        # def get_feat(self, imgs):
+        # if not isinstance(imgs, list):
+        #     imgs = [imgs]
+        # input_size = self.input_size
+        
+        # blob = cv2.dnn.blobFromImages(imgs, 1.0 / self.input_std, input_size,
+        #                               (self.input_mean, self.input_mean, self.input_mean), swapRB=True)
+        # ここで走ってる！.
+        # net_out = self.session.run(self.output_names, {self.input_name: blob})[0]
+        # return net_out
+
+        # def get(self, img, face):
+        # aimg = face_align.norm_crop(img, landmark=face.kps, image_size=self.input_size[0])
+        # face.embedding = self.get_feat(aimg).flatten()
+        # return face.embedding
         return det, kpss
 
     def nms(self, dets):
@@ -263,88 +313,3 @@ class PicklableInferenceSession:
             order = order[inds + 1]
 
         return keep
-
-# class PickableInferenceSession(onnxruntime.InferenceSession): 
-#     # This is a wrapper to make the current InferenceSession class pickable.
-#     def __init__(self, model_path, **kwargs):
-#         super().__init__(model_path, **kwargs)
-#         self.model_path = model_path
-
-#     def __getstate__(self):
-#         return {'model_path': self.model_path}
-
-#     def __setstate__(self, values):
-#         model_path = values['model_path']
-#         self.__init__(model_path)
-
-class IOProcess (mp.Process): # ここで画像バイナリを渡す.
-    def __init__(self, start_event, stop_event):
-        super(IOProcess, self).__init__()
-        # ここのパスを見つけたらok
-        model_path = '/Users/nakanohiroki/.insightface/models/buffalo_l/det_10g.onnx'
-        self.session = PicklableInferenceSession(model_path)
-        self.start_event = start_event
-        self.stop_event = stop_event
-
-        # prepare
-        source_face_path = "source_face.jpg"
-        source_face = cv2.imread(source_face_path)
-        self.session.prepare(ctx_id=0, det_size=(640, 640), input_size=(640, 640), det_thresh=0.5)
-        # def get(self, img, max_num=0):
-        # bboxes, kpss = self.det_model.detect(img,
-        #                                      max_num=max_num,
-        #                                      metric='default')
-        # if bboxes.shape[0] == 0:
-        #     return []
-        # ret = []
-        # for i in range(bboxes.shape[0]):
-        #     bbox = bboxes[i, 0:4]
-        #     det_score = bboxes[i, 4]
-        #     kps = None
-        #     if kpss is not None:
-        #         kps = kpss[i]
-        #     face = Face(bbox=bbox, kps=kps, det_score=det_score)
-        #     for taskname, model in self.models.items():
-        #         if taskname=='detection':
-        #             continue
-        #         model.get(img, face)
-        #     ret.append(face)
-        # return ret
-        self.session.detect(source_face) # ERROR!
-        exit()
-
-        # FaceAnalysis.prepare = RetinaFace.prepare
-        # self.session.prepare
-        # self.session.
-
-        # processor.store_source_face("Tom_Cruise_avp_2014_4.jpg")
-        # """
-        # # Load source face
-        # img = cv2.imread(img_path)
-
-
-    def run(self):
-        while not self.stop_event.is_set():
-            print("calling run")
-            print(self.session)
-            # print(self.session.run({}, {
-            #     # 'a': np.zeros((3,4),dtype=np.float32), 
-            #     # 'b': np.zeros((4,3),dtype=np.float32), 
-            #     'target': [[[0,0,0]]],
-            #     "source": [[[0,0,0]]]
-            #     }))
-
-if __name__ == '__main__':
-    mp.set_start_method('spawn') # This is important and MUST be inside the name==main block.
-    start_event = mp.Event()
-    stop_event = mp.Event()
-    cpu_num = 4
-    io_process_list = []
-    for _ in range(cpu_num):
-        io_process = IOProcess(start_event, stop_event)
-        print("run", _)
-        io_process.start()
-        io_process_list.append(io_process)
-    stop_event.set()
-    for io_process in io_process_list:
-        io_process.join()
