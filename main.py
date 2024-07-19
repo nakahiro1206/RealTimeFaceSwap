@@ -23,7 +23,7 @@ def main():
 
     source_faces = load_faces(app)
 
-    swapper = get_model("inswapper_128.onnx")
+    swapper = get_model("models/inswapper_128.onnx")
 
     # Initialize webcam video capture
     cap = cv2.VideoCapture(0)
@@ -64,7 +64,7 @@ def main():
 
             past_time = time.time() - start_time
             idx = int(past_time / 10) % len(source_faces)
-            # frame = swapper.get(frame, biggest_face, source_faces[idx], paste_back=True)
+            frame = swapper.get(frame, biggest_face, source_faces[idx], paste_back=True)
 
             # 顔の境界ボックスを描画
             bbox = biggest_face.bbox.astype(int)
