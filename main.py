@@ -3,6 +3,7 @@ import time
 from insightface.model_zoo import get_model
 from insightface.app import FaceAnalysis
 import os
+from FaceRestorationHelperWrapper import FaceRestoreHelperWrapper
 
 def load_faces(app):
     source_dir = "./faceImages"
@@ -34,6 +35,8 @@ def main():
         print("Error: Could not open webcam.")
         exit()
 
+    face_helper_wrapper = FaceRestoreHelperWrapper()
+
     start_time = time.time()
     while True:
         # Capture frame-by-frame
@@ -54,7 +57,7 @@ def main():
                 max_area = area
                 biggest_face = face
 
-        hight, width, _ = frame.shape
+        height, width, _ = frame.shape
 
         if biggest_face is not None:
             # face.__dict__
@@ -66,18 +69,35 @@ def main():
             idx = int(past_time / 10) % len(source_faces)
             frame = swapper.get(frame, biggest_face, source_faces[idx], paste_back=True)
 
-            # 顔の境界ボックスを描画
-            bbox = biggest_face.bbox.astype(int)
-            cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
+            # high resolution method
+            bbox = biggest_face['bbox']
+            up = max(0, int(bbox[1]))
+            left = max(0, int(bbox[0]))
+            right = min(width, int(bbox[2]))
+            down = min(height, int(bbox[3]))
 
-            # ランドマークを描画
-            if biggest_face.landmark_2d_106 is not None:
-                for landmark in biggest_face.landmark_2d_106.astype(int):
-                    cv2.circle(frame, tuple(landmark), 2, (0, 255, 0), 2)
+            cropped_face = frame[up:down, left:right]
+            restored_face = face_helper_wrapper.call(
+                face_img=cropped_face, 
+                fidelity_weight=0.5, 
+                has_aligned=True
+            )
+            restored_resized_face = cv2.resize(restored_face, (right-left, down-up))
 
-            if biggest_face.kps is not None:
-                for kp in biggest_face.kps.astype(int):
-                    cv2.circle(frame, tuple(kp), 5, (255, 0, 0), 10)
+            frame[up:down, left:right] = restored_resized_face
+
+            # # 顔の境界ボックスを描画
+            # bbox = biggest_face.bbox.astype(int)
+            # cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
+
+            # # ランドマークを描画
+            # if biggest_face.landmark_2d_106 is not None:
+            #     for landmark in biggest_face.landmark_2d_106.astype(int):
+            #         cv2.circle(frame, tuple(landmark), 2, (0, 255, 0), 2)
+
+            # if biggest_face.kps is not None:
+            #     for kp in biggest_face.kps.astype(int):
+            #         cv2.circle(frame, tuple(kp), 5, (255, 0, 0), 10)
 
         # Display the resulting frame
         cv2.imshow('Webcam Feed', frame)
