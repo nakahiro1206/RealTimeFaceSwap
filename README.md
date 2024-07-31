@@ -19,7 +19,7 @@ InsightFace recognizes your face and replaces yours to the input image.
 
 ![swapped](https://github.com/nakahiro1206/RealTimeFaceSwap/blob/main/assets/swap.png)
 
-Because the swapped image is a little rough and CodeFormers upsamples face area.
+The swapped image is a little rough and CodeFormers upsamples face area.
 
 ![res](https://github.com/nakahiro1206/RealTimeFaceSwap/blob/main/assets/out.png)
 
