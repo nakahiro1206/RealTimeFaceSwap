@@ -1,6 +1,4 @@
-import os
 import cv2
-import glob
 import torch
 from torchvision.transforms.functional import normalize
 from basicsr.utils import imwrite, img2tensor, tensor2img

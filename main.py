@@ -69,6 +69,8 @@ def main():
             idx = int(past_time / 10) % len(source_faces)
             frame = swapper.get(frame, biggest_face, source_faces[idx], paste_back=True)
 
+            # cv2.imwrite("assets/swap.png",frame)
+
             # high resolution method
             bbox = biggest_face['bbox']
             up = max(0, int(bbox[1]))
@@ -85,6 +87,8 @@ def main():
             restored_resized_face = cv2.resize(restored_face, (right-left, down-up))
 
             frame[up:down, left:right] = restored_resized_face
+
+            # cv2.imwrite("assets/out.png",frame)
 
             # # 顔の境界ボックスを描画
             # bbox = biggest_face.bbox.astype(int)
