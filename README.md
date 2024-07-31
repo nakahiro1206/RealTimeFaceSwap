@@ -11,17 +11,17 @@ Inspirations are [iperov/DeepFaceLive](https://github.com/iperov/DeepFaceLive) a
 ### Demonstration
 Suppose you want to swap your face with the image below, 
 
-![input]()
+![input](https://github.com/nakahiro1206/RealTimeFaceSwap/blob/main/faceImages/female1.jpg)
 
 Source by [Pexels.com](https://www.pexels.com/search/woman/)
 
 InsightFace recognizes your face and replaces yours to the input image.
 
-![swapped]()
+![swapped](https://github.com/nakahiro1206/RealTimeFaceSwap/blob/main/assets/swap.png)
 
-Swapped image is rough and the result image looks kind of unnatural. Then CodeFormers upsamples face area.
+Because the swapped image is a little rough and CodeFormers upsamples face area.
 
-![res]()
+![res](https://github.com/nakahiro1206/RealTimeFaceSwap/blob/main/assets/out.png)
 
 ### Source code
 Some codes are borrowed from [sczhou/CodeFormer](https://github.com/sczhou/CodeFormer)
@@ -33,5 +33,5 @@ Some codes are borrowed from [sczhou/CodeFormer](https://github.com/sczhou/CodeF
 ### Installation of the required packages
 ```pip install opencv-python torch torchvision insightface```
 
-### Ref. useful pre-trained models worth tring(I did not though)
+### Ref. useful pre-trained models worth trying(I did not though)
 [Releases/Sapphire](https://github.com/Hillobar/Rope/releases/tag/Sapphire)
