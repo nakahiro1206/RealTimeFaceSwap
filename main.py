@@ -4,6 +4,7 @@ from insightface.model_zoo import get_model
 from insightface.app import FaceAnalysis
 import os
 from FaceRestorationHelperWrapper import FaceRestoreHelperWrapper
+import numpy as np
 
 def load_faces(app):
     source_dir = "./faceImages"
@@ -50,14 +51,25 @@ def main():
 
         biggest_face = None
         max_area = 0
+
+        height, width, _ = frame.shape
+
+        # find biggest face from faces array.
         for face in faces:
             bbox = face['bbox']
+
+            # bbox can be out of range of frame (for example, jaw is partly out of frame)
+            # But if bbox does not have enough face key points, codeformers easily generate deformed image
+            # I don't like the output such that teeth is placed on the nose holes.
+            # To prevent deformed output, exclude the images which does not meet the requirement
+            if bbox[0] < 0 or bbox[1] < 0: continue
+            if bbox[2] > width or bbox[3] > height: continue
+
             area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
             if area > max_area:
                 max_area = area
                 biggest_face = face
 
-        height, width, _ = frame.shape
 
         if biggest_face is not None:
             # face.__dict__
@@ -72,21 +84,38 @@ def main():
             # cv2.imwrite("assets/swap.png",frame)
 
             # high resolution method
+            # get the position info of biggest face
             bbox = biggest_face['bbox']
-            up = max(0, int(bbox[1]))
-            left = max(0, int(bbox[0]))
-            right = min(width, int(bbox[2]))
-            down = min(height, int(bbox[3]))
+            bbox_up = int(bbox[1])
+            bbox_left = int(bbox[0])
+            bbox_right = int(bbox[2])
+            bbox_down = int(bbox[3])
 
-            cropped_face = frame[up:down, left:right]
+            horizontal_center = (bbox_left + bbox_right) // 2
+            vertical_center = (bbox_up + bbox_down) // 2
+
+            # bbox only contains landmark of the detected face.
+            # codeFormers require whole face that has from hair to chin 
+            # and suppose the input image should be 512*512 square sized image.
+            # So, expand the bbox max 1.5 times and reshape into square if possible.
+            square_image_half_size = int( max(bbox_down - bbox_up, bbox_right - bbox_left) * 0.75 )
+            square_image_up = max(vertical_center - square_image_half_size, 0)
+            square_image_left = max(horizontal_center - square_image_half_size, 0)
+            square_image_right = min(horizontal_center + square_image_half_size, width)
+            square_image_down = min(vertical_center + square_image_half_size, height)
+
+
+            cropped_face = frame[square_image_up:square_image_down, square_image_left:square_image_right]
+            
+            # face image should be 512*512 sized.
             restored_face = face_helper_wrapper.call(
                 face_img=cropped_face, 
                 fidelity_weight=0.5, 
                 has_aligned=True
             )
-            restored_resized_face = cv2.resize(restored_face, (right-left, down-up))
+            restored_resized_face = cv2.resize(restored_face, (square_image_right - square_image_left, square_image_down - square_image_up))
 
-            frame[up:down, left:right] = restored_resized_face
+            frame[square_image_up:square_image_down, square_image_left:square_image_right] = restored_resized_face
 
             # cv2.imwrite("assets/out.png",frame)
 
