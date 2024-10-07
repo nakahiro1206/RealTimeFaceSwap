@@ -4,7 +4,6 @@ from insightface.model_zoo import get_model
 from insightface.app import FaceAnalysis
 import os
 from FaceRestorationHelperWrapper import FaceRestoreHelperWrapper
-import numpy as np
 
 def load_faces(app):
     source_dir = "./faceImages"
@@ -58,10 +57,12 @@ def main():
         for face in faces:
             bbox = face['bbox']
 
-            # bbox can be out of range of frame (for example, jaw is partly out of frame)
-            # But if bbox does not have enough face key points, codeformers easily generate deformed image
-            # I don't like the output such that teeth is placed on the nose holes.
-            # To prevent deformed output, exclude the images which does not meet the requirement
+            """
+            bbox can be out of range of frame (for example, jaw is partly out of frame)
+            But if bbox does not have enough face key points, codeformers easily generate deformed image
+            I don't like the output such that teeth is placed on the nose holes.
+            To prevent deformed output, exclude the images which does not meet the requirement
+            """
             if bbox[0] < 0 or bbox[1] < 0: continue
             if bbox[2] > width or bbox[3] > height: continue
 
@@ -94,10 +95,12 @@ def main():
             horizontal_center = (bbox_left + bbox_right) // 2
             vertical_center = (bbox_up + bbox_down) // 2
 
-            # bbox only contains landmark of the detected face.
-            # codeFormers require whole face that has from hair to chin 
-            # and suppose the input image should be 512*512 square sized image.
-            # So, expand the bbox max 1.5 times and reshape into square if possible.
+            """
+            bbox only contains landmark of the detected face.
+            codeFormers require whole face that has from hair to chin 
+            and suppose the input image should be 512*512 square sized image.
+            So, expand the bbox max 1.5 times and reshape into square if possible.
+            """
             square_image_half_size = int( max(bbox_down - bbox_up, bbox_right - bbox_left) * 0.75 )
             square_image_up = max(vertical_center - square_image_half_size, 0)
             square_image_left = max(horizontal_center - square_image_half_size, 0)
@@ -116,21 +119,6 @@ def main():
             restored_resized_face = cv2.resize(restored_face, (square_image_right - square_image_left, square_image_down - square_image_up))
 
             frame[square_image_up:square_image_down, square_image_left:square_image_right] = restored_resized_face
-
-            # cv2.imwrite("assets/out.png",frame)
-
-            # # 顔の境界ボックスを描画
-            # bbox = biggest_face.bbox.astype(int)
-            # cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
-
-            # # ランドマークを描画
-            # if biggest_face.landmark_2d_106 is not None:
-            #     for landmark in biggest_face.landmark_2d_106.astype(int):
-            #         cv2.circle(frame, tuple(landmark), 2, (0, 255, 0), 2)
-
-            # if biggest_face.kps is not None:
-            #     for kp in biggest_face.kps.astype(int):
-            #         cv2.circle(frame, tuple(kp), 5, (255, 0, 0), 10)
 
         # Display the resulting frame
         cv2.imshow('Webcam Feed', frame)
